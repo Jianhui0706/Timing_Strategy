@@ -1,0 +1,16 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+data/processed/*
+!data/processed/.gitkeep
+output/*
+!output/.gitkeep
+storage/
+frontend/node_modules/
+frontend/dist/
+*.sqlite
+*.sqlite3

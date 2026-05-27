@@ -1,0 +1,43 @@
+project:
+  name: 择时策略系统
+  language: zh-CN
+
+paths:
+  raw_data_dir: data/raw
+  processed_data_dir: data/processed
+  output_dir: output
+  reports_dir: output/reports
+  storage_db: storage/timing_strategy.sqlite3
+
+run:
+  initial_candidates: 2
+  enable_mutation: true
+  enable_crossover: true
+
+validation:
+  max_nodes: 60
+  max_depth: 8
+  max_window: 252
+  min_window: 1
+  allowed_fields:
+    - open
+    - high
+    - low
+    - close
+    - volume
+    - amount
+    - return_1d
+
+position:
+  default_rule:
+    type: threshold_long_cash
+    long_when: factor_value > 0
+    long_position: 1.0
+    cash_position: 0.0
+
+backtest:
+  annual_trading_days: 252
+  buy_fee: 0.0005
+  sell_fee: 0.0015
+  slippage: 0.0002
+  execution: next_close

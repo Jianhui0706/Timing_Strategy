@@ -1,0 +1,15 @@
+pandas
+pyarrow
+numpy
+scipy
+pydantic
+pyyaml
+sqlalchemy
+tqdm
+matplotlib
+plotly
+openai
+python-dotenv
+fastapi
+uvicorn
+pytest

@@ -1,0 +1,5 @@
+provider: openai
+model: gpt-5.5
+temperature: 0.2
+max_retries: 2
+request_timeout_seconds: 60
