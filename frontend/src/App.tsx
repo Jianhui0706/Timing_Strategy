@@ -123,11 +123,15 @@ const FIELD_LABELS: Record<string, string> = {
   return_review: "收益复盘",
   risk_review: "风险复盘",
   failure_reason: "失败原因",
+  likely_root_cause: "可能根因",
   next_action: "下一步动作",
   mutation_hint: "变异建议",
   crossover_hint: "组合建议",
   mutation_reason: "变异理由",
-  reason_summary: "理由摘要"
+  reason_summary: "理由摘要",
+  raw_error: "原始错误",
+  error_type: "错误类型",
+  diagnosis_error: "原因生成错误"
 };
 
 const FIELD_ORDER = [
@@ -146,16 +150,20 @@ const FIELD_ORDER = [
   "passed",
   "decision_reason",
   "issues",
-  "repair_hint",
   "prediction_review",
   "return_review",
   "risk_review",
   "failure_reason",
+  "likely_root_cause",
+  "repair_hint",
   "next_action",
   "mutation_hint",
   "crossover_hint",
   "mutation_reason",
-  "reason_summary"
+  "reason_summary",
+  "raw_error",
+  "error_type",
+  "diagnosis_error"
 ];
 
 function runId(run: RunSummary): string {
@@ -226,6 +234,7 @@ function App() {
   const [selectedStepId, setSelectedStepId] = useState("");
   const [selectedFactorId, setSelectedFactorId] = useState("");
   const [selectedCallId, setSelectedCallId] = useState("");
+  const [activeView, setActiveView] = useState<"timeline" | "factor">("timeline");
   const [dataPath, setDataPath] = useState(DEFAULT_DATA_PATH);
   const [runName, setRunName] = useState("513860 ETF 前端运行");
   const [isStarting, setIsStarting] = useState(false);
@@ -293,10 +302,12 @@ function App() {
     return () => window.clearInterval(timer);
   }, [detail?.status, runs, loadRuns, loadDetail, loadPool]);
 
-  const selectedFactor = useMemo(
-    () => detail?.factors.find((factor) => factor.id === selectedFactorId) || detail?.factors[0],
-    [detail, selectedFactorId]
-  );
+  const selectedFactor = useMemo(() => {
+    if (!detail) return undefined;
+    const found = detail.factors.find((factor) => factor.id === selectedFactorId);
+    if (found) return found;
+    return selectedFactorId ? undefined : detail.factors[0];
+  }, [detail, selectedFactorId]);
 
   const selectedCall = useMemo(
     () => detail?.agent_calls.find((call) => call.id === selectedCallId) || detail?.agent_calls[0],
@@ -474,6 +485,7 @@ function App() {
                     setSelectedStepId("");
                     setSelectedFactorId("");
                     setSelectedCallId("");
+                    setActiveView("timeline");
                   }}
                 >
                   <strong>{run.name}</strong>
@@ -504,10 +516,11 @@ function App() {
               {pool.map((item) => (
                 <button
                   key={item.factor_id}
-                  className="list-item"
+                  className={`list-item ${item.factor_id === selectedFactorId ? "active" : ""}`}
                   onClick={() => {
                     setSelectedRunId(item.run_id);
                     setSelectedFactorId(item.factor_id);
+                    setActiveView("factor");
                   }}
                 >
                   <strong>{item.factor_name}</strong>
@@ -519,7 +532,7 @@ function App() {
           </section>
         </aside>
 
-        <section className="content">
+        <section className={`content ${activeView === "factor" ? "factor-first" : ""}`}>
           {!detail ? (
             <div className="panel empty-state">请选择一次运行，或启动一轮真实流程。</div>
           ) : (
@@ -543,7 +556,24 @@ function App() {
                 </div>
               </section>
 
-              <section className="panel">
+              <div className="view-switch" aria-label="详情视图切换">
+                <button
+                  type="button"
+                  className={activeView === "timeline" ? "active" : ""}
+                  onClick={() => setActiveView("timeline")}
+                >
+                  运行时间线
+                </button>
+                <button
+                  type="button"
+                  className={activeView === "factor" ? "active" : ""}
+                  onClick={() => setActiveView("factor")}
+                >
+                  因子详情
+                </button>
+              </div>
+
+              <section className="panel timeline-panel">
                 <h2>运行时间线</h2>
                 <div className="timeline">
                   {detail.steps.map((step) => {
@@ -608,10 +638,16 @@ function App() {
                 )}
               </section>
 
-              <section className="two-column">
+              <section className="two-column factor-panel">
                 <div className="panel">
                   <h2>因子详情</h2>
-                  <select value={selectedFactor?.id || ""} onChange={(event) => setSelectedFactorId(event.target.value)}>
+                  <select
+                    value={selectedFactor?.id || ""}
+                    onChange={(event) => {
+                      setSelectedFactorId(event.target.value);
+                      setActiveView("factor");
+                    }}
+                  >
                     {detail.factors.map((factor) => (
                       <option value={factor.id} key={factor.id}>
                         {factor.factor_name}
@@ -628,7 +664,11 @@ function App() {
                         <dd>{selectedFactor.status || "-"}</dd>
                         <dt>得分</dt>
                         <dd>{formatNumber(selectedFactor.evaluation?.score)}</dd>
+                        <dt>阶段</dt>
+                        <dd>{selectedFactor.phase || "-"}</dd>
                       </dl>
+                      <h3>仓位规则</h3>
+                      <pre>{formatJson(selectedFactor.position_rule)}</pre>
                     </div>
                   )}
                 </div>
@@ -639,7 +679,7 @@ function App() {
                 </div>
               </section>
 
-              <section className="two-column">
+              <section className="two-column trace-panel">
                 <div className="panel">
                   <h2>Prompt 查看器</h2>
                   <select value={selectedCall?.id || ""} onChange={(event) => setSelectedCallId(event.target.value)}>
@@ -672,7 +712,7 @@ function App() {
                 </div>
               </section>
 
-              <section className="panel">
+              <section className="panel report-panel">
                 <h2>报告路径</h2>
                 <pre>{formatJson(detail.summary?.report_paths || detail.summary)}</pre>
               </section>

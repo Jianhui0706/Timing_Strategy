@@ -13,6 +13,7 @@ crossover 原则：
 2. 输出必须仍然简洁、可解释、可由固定 Python 算子库计算。
 3. 首版仍然只做指数/ETF多头/空仓择时。
 4. 输出必须是 JSON。
+5. 复杂择时逻辑必须放在 expression 中；position_rule.long_when 只能写成 `factor_value > 0`、`factor_value >= 0` 这类 factor_value 与数字阈值的简单比较，不能引用 close、volume 或任何算子。
 
 可用字段：
 
@@ -31,8 +32,7 @@ crossover 原则：
 - factor_name：中文因子名称。
 - hypothesis：crossover 后的中文择时假设。
 - expression：标准算子表达式。
-- position_rule：多头/空仓仓位规则。
+- position_rule：多头/空仓仓位规则，long_when 使用 factor_value 阈值比较。
 - expected_mechanism：中文机制解释。
 - crossover_reason：复用了哪些父轨迹机制。
 - reason_summary：中文摘要。
-

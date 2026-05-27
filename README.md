@@ -11,14 +11,14 @@
 在项目根目录执行：
 
 ```bash
-cd /Users/linaismith/Desktop/实习/论文复刻/Timing_Strategy
+cd Timing_Strategy
 pip install -r requirements.txt
 ```
 
 ### 2. 安装前端依赖
 
 ```bash
-cd /Users/linaismith/Desktop/实习/论文复刻/Timing_Strategy/frontend
+cd Timing_Strategy/frontend
 npm install
 ```
 
@@ -27,7 +27,7 @@ npm install
 在项目根目录复制环境变量模板：
 
 ```bash
-cd /Users/linaismith/Desktop/实习/论文复刻/Timing_Strategy
+cd Timing_Strategy
 cp .env.example .env
 ```
 

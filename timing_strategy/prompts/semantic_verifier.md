@@ -14,6 +14,7 @@ output_format: json
 3. 是否存在明显未来函数。
 4. 是否使用了 OHLCV 以外的信息。
 5. 是否过度复杂或难以解释。
+6. position_rule.long_when 是否只使用 factor_value 与数字阈值比较；复杂算子条件应出现在 expression 中，而不是仓位规则中。
 
 请严格输出 JSON，不要输出 Markdown。
 
@@ -28,4 +29,3 @@ output_format: json
 待审核内容：
 
 {{factor_payload}}
-

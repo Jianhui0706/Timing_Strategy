@@ -110,6 +110,73 @@ class FinalReportFailingLLM:
         raise AssertionError(prompt_name)
 
 
+class BacktestFailureDiagnosingLLM:
+    model = "fake-model"
+
+    def complete_json(self, agent_name, prompt_name, full_prompt, input_payload):
+        if prompt_name == "market_summary":
+            return LLMResult(
+                output={
+                    "market_regime": "测试行情",
+                    "trend_summary": "测试趋势",
+                    "volatility_summary": "测试波动",
+                    "volume_summary": "测试成交量",
+                    "risk_summary": "测试风险",
+                    "reason_summary": "测试摘要",
+                },
+                raw_output="{}",
+                token_usage={},
+            )
+        if prompt_name == "hypothesis_generation":
+            return LLMResult(
+                output={
+                    "hypothesis": "当多个条件同时满足时提高仓位。",
+                    "mechanism_type": "趋势",
+                    "expected_mechanism": "测试机制。",
+                    "risk_hint": "测试风险。",
+                    "reason_summary": "测试假设。",
+                },
+                raw_output="{}",
+                token_usage={},
+            )
+        if prompt_name == "factor_generation":
+            return LLMResult(
+                output={
+                    "factor_name": "仓位条件错误因子",
+                    "hypothesis": "当多个条件同时满足时提高仓位。",
+                    "expression": "AND(GT(close, SMA(close, 5)), GT(volume, 0))",
+                    "position_rule": {
+                        "type": "threshold_long_cash",
+                        "long_when": "AND(GT(close, SMA(close, 5)), GT(volume, 0))",
+                        "long_position": 1.0,
+                        "cash_position": 0.0,
+                    },
+                    "expected_mechanism": "测试机制。",
+                    "reason_summary": "测试表达式。",
+                },
+                raw_output="{}",
+                token_usage={},
+            )
+        if prompt_name == "semantic_verifier":
+            return LLMResult(
+                output={"passed": True, "decision_reason": "通过", "issues": [], "repair_hint": "无需修改", "reason_summary": "通过"},
+                raw_output="{}",
+                token_usage={},
+            )
+        if prompt_name == "failure_diagnosis":
+            return LLMResult(
+                output={
+                    "failure_reason": "仓位条件写成了完整表达式，固定仓位解析器无法处理。",
+                    "likely_root_cause": "position_rule.long_when 使用了 AND/GT/SMA 等算子。",
+                    "repair_hint": "把复杂条件保留在 expression，long_when 改成 factor_value > 0。",
+                    "reason_summary": "仓位条件格式错误。",
+                },
+                raw_output="{}",
+                token_usage={},
+            )
+        raise AssertionError(prompt_name)
+
+
 def test_final_report_parse_failure_does_not_fail_run(tmp_path: Path) -> None:
     market = pd.DataFrame(
         {
@@ -142,3 +209,47 @@ def test_final_report_parse_failure_does_not_fail_run(tmp_path: Path) -> None:
     assert detail["status"] == "completed"
     assert "report_error" in detail["summary"]["final_report"]
     assert detail["summary"]["report_paths"]["markdown"].endswith(".md")
+
+
+def test_backtest_failure_records_ai_diagnosis(tmp_path: Path) -> None:
+    market = pd.DataFrame(
+        {
+            "date": pd.date_range("2024-01-01", periods=80, freq="B"),
+            "open": range(100, 180),
+            "high": range(101, 181),
+            "low": range(99, 179),
+            "close": range(100, 180),
+            "volume": [10_000_000] * 80,
+            "amount": [1_000_000_000] * 80,
+        }
+    )
+    path = tmp_path / "market.parquet"
+    enrich_market_data(market).to_parquet(path, index=False)
+
+    config = load_app_config()
+    config["paths"]["storage_db"] = str(tmp_path / "trace.sqlite3")
+    config["paths"]["output_dir"] = str(tmp_path / "output")
+    config["paths"]["reports_dir"] = str(tmp_path / "output" / "reports")
+    config["run"]["initial_candidates"] = 1
+    config["run"]["enable_mutation"] = False
+    config["run"]["enable_crossover"] = False
+    repo = TraceRepository(config["paths"]["storage_db"])
+
+    runner = WorkflowRunner(config=config, repository=repo, llm_client=BacktestFailureDiagnosingLLM())
+    with pytest.raises(ValueError, match="无法解析仓位条件"):
+        runner.run(data_path=str(path), run_name="backtest failure diagnosis")
+
+    runs = repo.list_runs()
+    assert len(runs) == 1
+    detail = repo.get_run_detail(runs[0]["id"])
+
+    assert detail is not None
+    assert detail["status"] == "failed"
+    backtest_step = next(step for step in detail["steps"] if step["step_name"] == "initialization_1 固定 Python 回测")
+    assert backtest_step["status"] == "failed"
+    assert backtest_step["detail"]["failure_reason"] == "仓位条件写成了完整表达式，固定仓位解析器无法处理。"
+    assert backtest_step["detail"]["raw_error"].startswith("无法解析仓位条件")
+    assert any(
+        call["step_id"] == backtest_step["id"] and call["prompt_name"] == "failure_diagnosis"
+        for call in detail["agent_calls"]
+    )

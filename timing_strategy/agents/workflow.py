@@ -268,6 +268,8 @@ class WorkflowRunner:
         validation_payload = validation.to_dict()
         validation_payload["semantic_verifier"] = verifier
         passed = validation.passed and bool(verifier.get("passed", False))
+        if not passed:
+            validation_payload["failure_reason"] = self._validation_failure_reason(validation_payload, verifier)
         self.repository.finish_step(
             validation_step,
             "completed" if passed else "failed",
@@ -315,7 +317,19 @@ class WorkflowRunner:
             self.repository.finish_step(backtest_step, "completed", "固定 Python 回测完成", {"metrics": metrics})
             self._log(f"完成：{phase} 固定 Python 回测，score={metrics.get('score')}")
         except Exception as exc:
-            self.repository.finish_step(backtest_step, "failed", str(exc), {})
+            diagnosis = self._diagnose_python_failure(
+                run_id=run_id,
+                step_id=backtest_step,
+                step_name=f"{phase} 固定 Python 回测",
+                exc=exc,
+                context={
+                    "phase": phase,
+                    "proposal": proposal,
+                    "validation": validation_payload,
+                },
+            )
+            message = str(diagnosis.get("reason_summary") or diagnosis.get("failure_reason") or exc)
+            self.repository.finish_step(backtest_step, "failed", message, diagnosis)
             self._log(f"失败：{phase} 固定 Python 回测：{exc}")
             raise
 
@@ -356,6 +370,94 @@ class WorkflowRunner:
         if not path.exists():
             raise DataValidationError(f"未读取到行情数据：文件不存在 {path}")
         return load_market_file(path)
+
+    def _diagnose_python_failure(
+        self,
+        run_id: str,
+        step_id: str,
+        step_name: str,
+        exc: Exception,
+        context: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload = {
+            "step_name": step_name,
+            "error_type": exc.__class__.__name__,
+            "error": str(exc),
+            "context": context,
+        }
+        fallback = self._fallback_failure_diagnosis(payload)
+        try:
+            template = self.prompt_loader.load("failure_diagnosis")
+            full_prompt = template.render(
+                {"failure_payload": json.dumps(payload, ensure_ascii=False, indent=2, default=str)}
+            )
+            result = self.llm_client.complete_json(
+                agent_name="FailureDiagnosisAgent",
+                prompt_name=template.name,
+                full_prompt=full_prompt,
+                input_payload=payload,
+            )
+            self.repository.add_agent_call(
+                run_id=run_id,
+                step_id=step_id,
+                agent_name="FailureDiagnosisAgent",
+                prompt_name=template.name,
+                prompt_version=template.version,
+                full_prompt=full_prompt,
+                input_payload=payload,
+                output_payload=result.output,
+                raw_output=result.raw_output,
+                token_usage=result.token_usage,
+            )
+            return {
+                **fallback,
+                **result.output,
+                "error_type": payload["error_type"],
+                "raw_error": payload["error"],
+            }
+        except Exception as diagnosis_exc:
+            return {
+                **fallback,
+                "error_type": payload["error_type"],
+                "raw_error": payload["error"],
+                "diagnosis_error": str(diagnosis_exc),
+            }
+
+    @staticmethod
+    def _fallback_failure_diagnosis(payload: dict[str, Any]) -> dict[str, Any]:
+        error = str(payload.get("error", ""))
+        context = payload.get("context", {})
+        proposal = context.get("proposal", {}) if isinstance(context, dict) else {}
+        position_rule = proposal.get("position_rule", {}) if isinstance(proposal, dict) else {}
+        long_when = position_rule.get("long_when") if isinstance(position_rule, dict) else None
+
+        if "无法解析仓位条件" in error:
+            return {
+                "failure_reason": (
+                    "仓位规则 long_when 写成了完整择时表达式，当前固定 Python 仓位引擎只支持 "
+                    "`factor_value` 与数字阈值的简单比较。"
+                ),
+                "likely_root_cause": f"无法解析的 long_when：{long_when or error}",
+                "repair_hint": "把 AND/GT/RET/SMA 等复杂逻辑放到 expression 中，position_rule.long_when 改为 `factor_value > 0`。",
+                "reason_summary": "仓位条件格式超出当前解析器支持范围。",
+            }
+
+        return {
+            "failure_reason": "固定 Python 步骤执行时抛出异常，回测没有完成。",
+            "likely_root_cause": error or "未知异常",
+            "repair_hint": "查看 raw_error 和候选因子的 expression / position_rule，按固定算子与仓位规则约束修正后重跑。",
+            "reason_summary": "固定 Python 步骤失败。",
+        }
+
+    @staticmethod
+    def _validation_failure_reason(validation_payload: dict[str, Any], verifier: dict[str, Any]) -> str:
+        issues = validation_payload.get("issues")
+        if isinstance(issues, list) and issues:
+            return "Python 表达式校验未通过：" + "；".join(str(item) for item in issues[:3])
+        decision_reason = verifier.get("decision_reason")
+        if decision_reason:
+            return f"语义一致性审核未通过：{decision_reason}"
+        return "候选因子未通过 Python 校验或语义一致性审核。"
 
     def _log(self, message: str) -> None:
         if self.logger:

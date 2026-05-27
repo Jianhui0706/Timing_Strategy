@@ -186,6 +186,39 @@ h3 {
   gap: 12px;
 }
 
+.view-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.view-switch button {
+  min-width: 112px;
+  padding: 9px 12px;
+}
+
+.view-switch button.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.content.factor-first .factor-panel {
+  order: 1;
+}
+
+.content.factor-first .timeline-panel {
+  order: 2;
+}
+
+.content.factor-first .trace-panel {
+  order: 3;
+}
+
+.content.factor-first .report-panel {
+  order: 4;
+}
+
 .stats > div {
   display: flex;
   min-height: 92px;
