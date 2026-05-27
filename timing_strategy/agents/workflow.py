@@ -36,7 +36,7 @@ class WorkflowRunner:
     ):
         self.config = config
         self.logger = logger
-        db_path = config.get("paths", {}).get("storage_db", "storage/timing_strategy.sqlite3")
+        db_path = config.get("paths", {}).get("storage_db", "output/storage/timing_strategy.sqlite3")
         self.repository = repository or TraceRepository(db_path)
         llm_cfg = config.get("llm", {})
         self.llm_client = llm_client or LLMClient(

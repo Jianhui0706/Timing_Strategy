@@ -22,7 +22,7 @@ def main() -> None:
 
     args = parser.parse_args()
     config = load_app_config()
-    repository = TraceRepository(config.get("paths", {}).get("storage_db", "storage/timing_strategy.sqlite3"))
+    repository = TraceRepository(config.get("paths", {}).get("storage_db", "output/storage/timing_strategy.sqlite3"))
 
     if args.command == "run":
         runner = WorkflowRunner(config=config, repository=repository, logger=lambda message: print(message, flush=True))

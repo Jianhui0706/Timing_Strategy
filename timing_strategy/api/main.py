@@ -22,7 +22,7 @@ class RunRequest(BaseModel):
 
 
 config = load_app_config()
-repository = TraceRepository(config.get("paths", {}).get("storage_db", "storage/timing_strategy.sqlite3"))
+repository = TraceRepository(config.get("paths", {}).get("storage_db", "output/storage/timing_strategy.sqlite3"))
 active_run_ids: set[str] = set()
 
 app = FastAPI(title="择时策略系统 API", version="0.1.0")

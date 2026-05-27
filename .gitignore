@@ -9,7 +9,13 @@ data/processed/*
 !data/processed/.gitkeep
 output/*
 !output/.gitkeep
-storage/
+!output/reports/
+output/reports/*
+!output/reports/.gitkeep
+!output/storage/
+output/storage/*
+!output/storage/.gitkeep
+/storage/
 frontend/node_modules/
 frontend/dist/
 *.sqlite

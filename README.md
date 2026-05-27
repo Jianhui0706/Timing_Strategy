@@ -1,13 +1,196 @@
 # 择时策略系统
 
-这是一个面向指数/ETF择时研究的策略挖掘系统。系统借鉴 QuantaAlpha 的 trajectory、mutation、crossover 思路，但将任务从“横截面选股因子”改造成“时间序列择时信号”。
+这是一个面向指数/ETF 择时研究的策略挖掘系统。系统采用固定 Python 计算内核、FastAPI 后端和 Vite + React 前端；GPT 只作为“研究员”，负责提出中文假设、生成表达式、做语义审核、回测反思和进化建议。
 
-核心边界很明确：
+## 快速启动
 
-- GPT-5.5 API 只负责提出中文择时假设、生成标准算子表达式、做语义检查、回测反思和进化建议。
+建议先打开两个终端：一个跑后端，一个跑前端。
+
+### 1. 安装 Python 依赖
+
+在项目根目录执行：
+
+```bash
+cd /Users/linaismith/Desktop/实习/论文复刻/Timing_Strategy
+pip install -r requirements.txt
+```
+
+### 2. 安装前端依赖
+
+```bash
+cd /Users/linaismith/Desktop/实习/论文复刻/Timing_Strategy/frontend
+npm install
+```
+
+### 3. 配置 OpenAI API
+
+在项目根目录复制环境变量模板：
+
+```bash
+cd /Users/linaismith/Desktop/实习/论文复刻/Timing_Strategy
+cp .env.example .env
+```
+
+然后编辑 `.env`，填入：
+
+```text
+OPENAI_API_KEY=你的OpenAI API Key
+OPENAI_MODEL=gpt-5.4
+TIMING_STRATEGY_DB=output/storage/timing_strategy.sqlite3
+```
+
+如果客户账号里的模型名不是 `gpt-5.4`，就把 `OPENAI_MODEL` 改成实际可用模型名。
+
+没有配置 API Key 时，系统会明确返回“未接入 LLM”，不会生成假结果。
+
+### 4. 准备行情数据
+
+把 CSV 或 Parquet 行情数据放到：
+
+```text
+data/raw/
+```
+
+当前项目已经支持 `.csv`、`.parquet`、`.pq`。前端会自动扫描 `data/raw/`，并在顶部下拉框里显示可选数据文件，不需要手动输入完整路径。
+
+项目提供了 Tushare 下载 notebook：
+
+```text
+data/download_data.ipynb
+```
+
+当前 notebook 默认下载 `513860.SH`，保存到：
+
+```text
+data/raw/513860_etf.parquet
+```
+
+### 5. 启动后端
+
+在项目根目录执行：
+
+```bash
+cd /Users/linaismith/Desktop/实习/论文复刻/Timing_Strategy
+uvicorn timing_strategy.api.main:app --reload --port 8000
+```
+
+后端启动后可以打开：
+
+```text
+http://127.0.0.1:8000/
+```
+
+这是 FastAPI 后端中文调试首页，可以查看服务状态、运行列表、启动真实运行、查看运行 JSON、删除单次运行或清空运行记录与报告。
+
+接口文档地址：
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+### 6. 启动前端
+
+另开一个终端：
+
+```bash
+cd /Users/linaismith/Desktop/实习/论文复刻/Timing_Strategy/frontend
+npm run dev
+```
+## 访问
+```text
+http://localhost:5173/
+```
+
+
+## CLI 运行方式
+
+除了前端，也可以用命令行跑一次真实流程：
+
+```bash
+cd /Users/linaismith/Desktop/实习/论文复刻/Timing_Strategy
+python -m timing_strategy.cli run --data data/raw/513860_etf.parquet --name "513860 ETF 首次运行"
+```
+
+查看历史运行记录：
+
+```bash
+python -m timing_strategy.cli list-runs
+```
+
+CLI 和前端使用的是同一套 Python 内核、同一个 SQLite trace 存储。
+
+## 输出位置
+
+所有运行产出统一保存在 `output/` 目录下：
+
+```text
+output/
+  storage/timing_strategy.sqlite3   # SQLite trace 数据库
+  reports/                          # Markdown / JSON 报告
+```
+
+其中：
+
+- `output/storage/timing_strategy.sqlite3` 保存完整 trace，包括每个 Agent 的 prompt、输入、输出、校验结果、回测指标、反思和 lineage。
+- `output/reports/` 保存 Markdown 和 JSON 报告，文件名包含运行时间、运行名称和短 run id，方便区分不同产出。
+
+报告文件示例：
+
+```text
+output/reports/20260528_040801_513860_ETF_首次运行_29daf059.md
+output/reports/20260528_040801_513860_ETF_首次运行_29daf059.json
+```
+
+## 数据格式
+
+首版要求行情数据至少包含以下字段：
+
+```text
+date, open, high, low, close, volume, amount
+```
+
+字段名不区分大小写。系统会自动按日期排序，并计算收益率字段。
+
+Tushare 常见字段可以直接读取：
+
+```text
+trade_date, open, high, low, close, vol, amount
+```
+
+系统会自动映射：
+
+- `trade_date` -> `date`
+- `vol` -> `volume`
+
+如果没有读取到数据文件，系统会明确返回“未读取到行情数据”，不会使用演示数据兜底。
+
+
+## 系统介绍
+
+本系统借鉴 QuantaAlpha 的 trajectory、mutation、crossover 思路，但将任务从“横截面选股因子”改造成“时间序列择时信号”。
+
+核心边界：
+
+- GPT 只负责研究逻辑，不负责执行回测代码。
 - 因子值计算、仓位映射、回测、指标统计全部由固定 Python 文件完成。
 - 前端只负责展示和触发任务，不参与任何策略计算。
 - 客户可见的 README、prompt、日志、报告、前端文案均为中文。
+
+## 前端能看到什么
+
+- 运行列表：每次 run 的状态、模型、候选因子数量和最佳指标。
+- 运行时间线：逐步查看市场摘要、假设、表达式、校验、回测、反思和进化。
+- Prompt 查看器：完整中文 prompt、输入上下文、模型原始输出。
+- 因子详情：中文假设、标准表达式、AST、仓位规则和校验结果。
+- 回测面板：策略净值、基准净值、仓位变化。
+- 进化谱系：展示 initialization、mutation、crossover 之间的父子关系。
+- Factor Pool：展示已经回测的因子及其指标。
+
+关于“AI 怎么思考”：
+
+- 前端展示完整 prompt、输入、输出、验证意见、反思总结和进化建议。
+- 不展示模型不可见的内部推理链。
+- Agent 会显式输出中文 `reason_summary`、`decision_reason`、`failure_reason`，用于审计和展示。
 
 ## 目录结构
 
@@ -16,7 +199,9 @@ Timing_Strategy/
   configs/                 # 系统配置
   data/raw/                # 本地行情 CSV / Parquet
   data/processed/          # 处理后数据和中间产物
-  output/                  # 运行报告等交付产出
+  output/                  # 统一运行产出目录
+    reports/               # Markdown / JSON 报告
+    storage/               # SQLite trace 数据库
   timing_strategy/
     api/                   # FastAPI 后端
     llm/                   # GPT API 封装、prompt 加载、输出结构
@@ -35,199 +220,10 @@ Timing_Strategy/
   tests/                   # 自动化测试
 ```
 
-## 安装
-
-建议使用 Python 3.10 及以上版本。
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-前端依赖：
-
-```bash
-cd frontend
-npm install
-```
-
-## 环境变量
-
-复制 `.env.example` 为 `.env`，并填入 API Key。
-
-```bash
-cp .env.example .env
-```
-
-默认模型名配置为 `gpt-5.5`。如果客户账号中模型名不同，只需要修改 `.env` 或 `configs/llm.yaml`。
-
-没有配置 API Key 时，系统会明确返回“未接入 LLM”，不会生成假结果。
-
-`.env` 示例：
-
-```text
-OPENAI_API_KEY=你的OpenAI API Key
-OPENAI_MODEL=gpt-5.5
-TIMING_STRATEGY_DB=storage/timing_strategy.sqlite3
-```
-
-## 数据格式
-
-当前项目不内置真实行情数据。后续从 Tushare 下载后，把 CSV 或 Parquet 放入 `data/raw/` 即可。没有读取到数据文件时，系统会明确返回“未读取到行情数据”，不会使用演示数据兜底。
-
-首版要求数据至少包含以下字段：
-
-```text
-date, open, high, low, close, volume, amount
-```
-
-字段名不区分大小写。系统会自动按日期排序，并计算收益率字段。
-
-Tushare 常见字段也可以直接读取：
-
-```text
-trade_date, open, high, low, close, vol, amount
-```
-
-系统会自动映射：
-
-- `trade_date` -> `date`
-- `vol` -> `volume`
-
-本项目提供了下载 notebook：
-
-```text
-data/download_data.ipynb
-```
-
-当前 notebook 默认下载 `513860.SH`，保存到：
-
-```text
-data/raw/513860_etf.parquet
-```
-
-## 运行 CLI
-
-使用本地 CSV 或 Parquet 运行一次真实流程：
-
-```bash
-python -m timing_strategy.cli run --data data/raw/513860_etf.parquet --name "513860 ETF 首次运行"
-```
-
-查看运行记录：
-
-```bash
-python -m timing_strategy.cli list-runs
-```
-
-CLI 会真实调用 GPT API，并把完整 prompt、模型输出、因子、回测结果写入 SQLite。
-
-运行完成后，流程和结果会保存到两个地方：
-
-- SQLite trace：`storage/timing_strategy.sqlite3`
-- 文件报告：`output/reports/<时间>_<运行名称>_<短run_id>.md` 和 `.json`
-
-SQLite 保存完整运行流程，包括每个 Agent 的完整 prompt、模型输入、模型输出、校验结果、回测指标、反思和 lineage。Markdown/JSON 报告适合直接查看或发给别人复核。报告文件名会包含运行时间和 `--name`，方便区分不同产出。
-
-## 启动前后端
-
-前端需要维护一个 FastAPI 后端。前端只负责展示和触发操作；运行任务、实时读取进度、删除运行记录、清空报告等操作都通过 FastAPI 完成。
-
-先启动后端：
-# 在Timing_Strategy路径下跑：
-```bash
-uvicorn timing_strategy.api.main:app --reload --port 8000
-```
-
-后端启动后可以打开：
-
-```text
-http://127.0.0.1:8000/
-```
-
-这里是 FastAPI 后端中文调试首页，可以查看服务状态、运行列表、启动真实运行、查看运行 JSON、删除单次运行或清空运行记录与报告。
-
-如果要看 FastAPI 自动生成的接口文档，打开：
-
-```text
-http://127.0.0.1:8000/docs
-```
-
-另开一个终端启动前端：
-# 在Timing_Strategy/frontend路径下跑：
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-打开：
-
-```text
-http://localhost:5173/
-```
-
-前端默认通过 Vite 代理访问 `http://127.0.0.1:8000/api`。在输入框里填：
-
-```text
-data/raw/513860_etf.parquet
-```
-
-然后点击“启动真实运行”。
-
-点击后，FastAPI 会立即创建 run 并在后台运行策略流程；前端会自动切到新 run，并每 2 秒刷新一次时间线。左侧也提供“删除当前运行”和“清空运行记录与报告”按钮，这些操作只会删除 SQLite 中的运行记录和 `output/reports` 中的报告，不会删除 `data/raw` 里的原始行情数据。
-
-## 推荐首次运行顺序
-
-```bash
-# 1. 安装 Python 依赖
-pip install -r requirements.txt
-
-# 2. 安装前端依赖
-cd frontend
-npm install
-cd ..
-
-# 3. 配置 .env 中的 OPENAI_API_KEY 和 OPENAI_MODEL
-
-# 4. 运行 data/download_data.ipynb 下载 Tushare 数据
-
-# 5. 先用 CLI 跑一次真实流程
-python -m timing_strategy.cli run --data data/raw/513860_etf.parquet --name "513860 ETF 首次运行"
-
-# 6. 启动后端
-uvicorn timing_strategy.api.main:app --reload --port 8000
-
-# 7. 另开终端启动前端
-cd frontend
-npm run dev
-```
-
-## 前端能看到什么
-
-- 运行列表：每次 run 的状态、耗时、模型、候选因子数量和最佳指标。
-- 运行详情：市场摘要、假设生成、表达式生成、语义验证、Python 校验、回测、反思、mutation/crossover。
-- Prompt 查看器：完整中文 prompt、输入上下文、模型原始输出。
-- 因子详情：中文假设、标准表达式、AST、仓位规则、校验结果。
-- 回测面板：策略净值、基准净值、回撤、仓位、换手、因子值。
-- 进化谱系：展示 initialization、mutation、crossover 之间的父子关系。
-- Factor Pool：按综合评分、年化收益、夏普、最大回撤、TSIC 排序。
-
-GPT 的回复可以在前端看到：选择某次运行后，在“Prompt 查看器”下拉框里选择 `HypothesisAgent`、`FactorAgent`、`ReflectionAgent` 等步骤，右侧会显示完整 prompt、模型输入和模型输出。因子假设也会展示在“因子详情”中。
-
 ## 重要约束
 
 - 不使用 `eval` 执行表达式。
-- LLM 不能生成 Python 回测代码。
+- LLM 不能生成或修改 Python 回测代码。
 - 表达式只能使用白名单字段和白名单算子。
 - 首版仓位限定为 `[0, 1]`，只做多头/空仓，不做卖空。
 - 默认第 t 日生成信号，第 t+1 日执行，避免未来函数。
-
-## 可选依赖
-
-后续如果需要直接下载 Tushare 数据，可以额外安装：
-
-```bash
-pip install tushare
-```

@@ -7,7 +7,7 @@ paths:
   processed_data_dir: data/processed
   output_dir: output
   reports_dir: output/reports
-  storage_db: storage/timing_strategy.sqlite3
+  storage_db: output/storage/timing_strategy.sqlite3
 
 run:
   initial_candidates: 2
