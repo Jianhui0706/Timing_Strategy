@@ -158,6 +158,12 @@ h3 {
   border-color: var(--accent);
 }
 
+.metric-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
 .danger-row {
   display: grid;
   grid-template-columns: 1fr;
@@ -182,7 +188,7 @@ h3 {
 
 .stats {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -379,6 +385,36 @@ dd {
 .chart {
   width: 100%;
   height: 360px;
+}
+
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.yearly-return-table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.yearly-return-table th,
+.yearly-return-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 10px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.yearly-return-table th {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.yearly-return-table th:nth-child(n + 3),
+.yearly-return-table td:nth-child(n + 3) {
+  text-align: right;
 }
 
 pre {

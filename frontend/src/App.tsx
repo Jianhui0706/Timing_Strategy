@@ -13,6 +13,7 @@ type RunSummary = {
   ended_at?: string | null;
   factor_count?: number;
   best_score?: number | null;
+  best_arr?: number | null;
   summary?: Record<string, unknown>;
 };
 
@@ -100,6 +101,16 @@ type HighlightItem = {
   value: string;
 };
 
+type YearlyReturn = {
+  year: string;
+  startDate: string;
+  endDate: string;
+  strategyReturn: number | null;
+  benchmarkReturn: number | null;
+  excessReturn: number | null;
+  isPartial: boolean;
+};
+
 const DEFAULT_DATA_PATH = "data/raw/513860_etf.parquet";
 
 const FIELD_LABELS: Record<string, string> = {
@@ -175,8 +186,19 @@ function formatNumber(value: unknown, digits = 4): string {
   return value.toFixed(digits);
 }
 
+function formatPercent(value: unknown, digits = 2): string {
+  if (typeof value !== "number" || Number.isNaN(value)) return "-";
+  return `${(value * 100).toFixed(digits)}%`;
+}
+
 function formatJson(value: unknown): string {
   return JSON.stringify(value ?? {}, null, 2);
+}
+
+function toFiniteNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -209,6 +231,66 @@ function stepHighlights(step: RunStep | undefined, call: AgentCall | undefined):
   if (items.length > 0) return items;
   if (step?.message) return [{ label: "步骤消息", value: step.message }];
   return [{ label: "详情", value: "这一步暂时没有可展示的结构化产出。" }];
+}
+
+function buildYearlyReturns(curve: Array<Record<string, unknown>>): YearlyReturn[] {
+  const rows = curve
+    .map((row) => {
+      const dateText = String(row.date || row.datetime || row.trade_date || "");
+      const date = new Date(`${dateText.slice(0, 10)}T00:00:00`);
+      return {
+        date,
+        dateText: dateText.slice(0, 10),
+        year: dateText.slice(0, 4),
+        strategyEquity: toFiniteNumber(row.strategy_equity ?? row.equity ?? row.nav),
+        benchmarkEquity: toFiniteNumber(row.benchmark_equity ?? row.benchmark)
+      };
+    })
+    .filter(
+      (row) =>
+        row.year.length === 4 &&
+        !Number.isNaN(row.date.getTime()) &&
+        row.strategyEquity !== null &&
+        row.benchmarkEquity !== null
+    )
+    .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+  const yearEnds: typeof rows = [];
+  const yearStarts = new Map<string, string>();
+  for (const row of rows) {
+    if (!yearStarts.has(row.year)) {
+      yearStarts.set(row.year, row.dateText);
+    }
+    const previous = yearEnds[yearEnds.length - 1];
+    if (!previous || previous.year !== row.year) {
+      yearEnds.push(row);
+    } else {
+      yearEnds[yearEnds.length - 1] = row;
+    }
+  }
+
+  let previousStrategyEquity = 1;
+  let previousBenchmarkEquity = 1;
+  return yearEnds.map((row, index) => {
+    const strategyReturn = row.strategyEquity === null ? null : row.strategyEquity / previousStrategyEquity - 1;
+    const benchmarkReturn = row.benchmarkEquity === null ? null : row.benchmarkEquity / previousBenchmarkEquity - 1;
+    previousStrategyEquity = row.strategyEquity ?? previousStrategyEquity;
+    previousBenchmarkEquity = row.benchmarkEquity ?? previousBenchmarkEquity;
+    const month = row.date.getMonth();
+    const day = row.date.getDate();
+    const isLastYear = index === yearEnds.length - 1;
+    const isPartial = isLastYear && !(month === 11 && day >= 28);
+    return {
+      year: row.year,
+      startDate: yearStarts.get(row.year) || row.dateText,
+      endDate: row.dateText,
+      strategyReturn,
+      benchmarkReturn,
+      excessReturn:
+        strategyReturn === null || benchmarkReturn === null ? null : strategyReturn - benchmarkReturn,
+      isPartial
+    };
+  });
 }
 
 async function requestJson<T>(url: string, options?: RequestInit): Promise<T> {
@@ -308,6 +390,11 @@ function App() {
     if (found) return found;
     return selectedFactorId ? undefined : detail.factors[0];
   }, [detail, selectedFactorId]);
+
+  const selectedYearlyReturns = useMemo(
+    () => buildYearlyReturns(selectedFactor?.evaluation?.equity_curve || []),
+    [selectedFactor]
+  );
 
   const selectedCall = useMemo(
     () => detail?.agent_calls.find((call) => call.id === selectedCallId) || detail?.agent_calls[0],
@@ -495,7 +582,10 @@ function App() {
                     {" · "}
                     {run.factor_count ?? 0} 个因子
                   </span>
-                  <span>score {formatNumber(run.best_score)}</span>
+                  <div className="metric-line">
+                    <span>score {formatNumber(run.best_score)}</span>
+                    <span>策略年化 {formatPercent(run.best_arr)}</span>
+                  </div>
                 </button>
               ))}
               {runs.length === 0 && <p className="empty">暂无运行记录。</p>}
@@ -524,7 +614,10 @@ function App() {
                   }}
                 >
                   <strong>{item.factor_name}</strong>
-                  <span>score {formatNumber(item.metrics?.score)}</span>
+                  <div className="metric-line">
+                    <span>score {formatNumber(item.metrics?.score)}</span>
+                    <span>策略年化 {formatPercent(item.metrics?.ARR)}</span>
+                  </div>
                 </button>
               ))}
               {pool.length === 0 && <p className="empty">暂无已回测因子。</p>}
@@ -553,6 +646,10 @@ function App() {
                 <div>
                   <span>最佳分数</span>
                   <strong>{formatNumber(detail.best_score)}</strong>
+                </div>
+                <div>
+                  <span>最佳策略年化</span>
+                  <strong>{formatPercent(detail.best_arr)}</strong>
                 </div>
               </section>
 
@@ -664,6 +761,8 @@ function App() {
                         <dd>{selectedFactor.status || "-"}</dd>
                         <dt>得分</dt>
                         <dd>{formatNumber(selectedFactor.evaluation?.score)}</dd>
+                        <dt>策略年化</dt>
+                        <dd>{formatPercent(selectedFactor.evaluation?.metrics?.ARR)}</dd>
                         <dt>阶段</dt>
                         <dd>{selectedFactor.phase || "-"}</dd>
                       </dl>
@@ -676,6 +775,40 @@ function App() {
                 <div className="panel">
                   <h2>回测面板</h2>
                   <div className="chart" ref={chartRef} />
+                  <h3>年度收益</h3>
+                  {selectedYearlyReturns.length > 0 ? (
+                    <div className="table-wrap">
+                      <table className="yearly-return-table">
+                        <thead>
+                          <tr>
+                            <th>年份</th>
+                            <th>区间</th>
+                            <th>策略收益</th>
+                            <th>基准收益</th>
+                            <th>超额收益</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedYearlyReturns.map((item) => (
+                            <tr key={item.year}>
+                              <td>
+                                {item.year}
+                                {item.isPartial ? " YTD" : ""}
+                              </td>
+                              <td>
+                                {item.startDate} 至 {item.endDate}
+                              </td>
+                              <td>{formatPercent(item.strategyReturn)}</td>
+                              <td>{formatPercent(item.benchmarkReturn)}</td>
+                              <td>{formatPercent(item.excessReturn)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="empty">暂无年度收益数据。</p>
+                  )}
                 </div>
               </section>
 

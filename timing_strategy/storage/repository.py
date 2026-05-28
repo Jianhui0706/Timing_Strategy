@@ -348,9 +348,13 @@ class TraceRepository:
         factors = session.query(Factor).filter(Factor.run_id == run.id).all()
         evaluations = session.query(Evaluation).filter(Evaluation.run_id == run.id).all()
         best_score = None
-        if evaluations:
-            scores = [item.score for item in evaluations if item.score is not None]
-            best_score = max(scores) if scores else None
+        best_arr = None
+        scored_evaluations = [item for item in evaluations if item.score is not None]
+        if scored_evaluations:
+            best_evaluation = max(scored_evaluations, key=lambda item: item.score)
+            best_score = best_evaluation.score
+            best_metrics = _loads(best_evaluation.metrics_json, {})
+            best_arr = best_metrics.get("ARR")
         return {
             "id": run.id,
             "name": run.name,
@@ -360,6 +364,7 @@ class TraceRepository:
             "ended_at": run.ended_at.isoformat() if run.ended_at else None,
             "factor_count": len(factors),
             "best_score": best_score,
+            "best_arr": best_arr,
             "summary": _loads(run.summary_json, {}),
         }
 
